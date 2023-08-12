@@ -1,6 +1,7 @@
 using Api.Data;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -15,42 +16,36 @@ public class MovieWebApplicationFactory : WebApplicationFactory<IApiMarker>, IAs
         .WithUsername("testuser")
         .WithPassword("testpassword")
         .Build();
-    
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.ConfigureLogging(loggingBuilder =>
-        {
-            loggingBuilder.ClearProviders();
-        });
+        builder.ConfigureLogging(loggingBuilder => { loggingBuilder.ClearProviders(); });
 
-        builder.ConfigureServices(services =>
+        builder.ConfigureTestServices(services =>
         {
             var dbContextDescriptor = services.Single(
                 d => d.ServiceType ==
                      typeof(DbContextOptions<MovieDbContext>));
-            
+
             services.Remove(dbContextDescriptor);
             services.AddDbContext<MovieDbContext>(opt =>
             {
                 var conn = _dbContainer.GetConnectionString();
                 opt.UseNpgsql(conn);
             });
+
+            var serviceProvider = services.BuildServiceProvider();
+            using var scope = serviceProvider.CreateScope();
+
+            var dbContext = scope.ServiceProvider.GetRequiredService<MovieDbContext>();
+            dbContext.Database.Migrate();
         });
+
     }
 
     public async Task InitializeAsync()
     {
         await _dbContainer.StartAsync();
-        using var scope = Services.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<MovieDbContext>();
-        var connString = dbContext.Database.GetConnectionString();
-        await dbContext.Database.MigrateAsync().ConfigureAwait(false);
-
-        dbContext.Movies.Add(new Movie(){Name = "Ace Ventura"});
-        dbContext.Movies.Add(new Movie(){Name = "Hot Shots"});
-
-        await dbContext.SaveChangesAsync().ConfigureAwait(false);
-
     }
 
     public new async Task DisposeAsync()
